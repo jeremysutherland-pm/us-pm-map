@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM Territory Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface2: #f0f1f4;
+    --border: #dde0e8;
+    --border-focus: #9aa3c2;
+    --text: #1a1d2e;
+    --text-muted: #7b82a0;
+    --text-light: #a0a8c0;
+    --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    --shadow-lg: 0 20px 50px rgba(0,0,0,0.15);
+    --jeremy: #9c27b0;
+    --victoria: #1976d2;
+    --meghan: #c49000;
+    --eric: #e65100;
+    --emi: #2e7d32;
+    --dank: #c62828;
+    --unassigned: #78909c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0; z-index: 10; flex-wrap: wrap; gap: 8px;
+    box-shadow: var(--shadow);
+  }
+  header h1 {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text); white-space: nowrap;
+  }
+  .header-center { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; justify-content: center; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+
+  /* PM toggle pills */
+  .pm-toggle {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 20px; cursor: pointer;
+    font-size: 12px; font-weight: 600; user-select: none;
+    border: 2px solid transparent;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .pm-toggle .pm-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .pm-toggle.off { opacity: 0.35; }
+  .pm-toggle:hover { transform: scale(1.05); }
+  .pm-toggle .pm-count { font-weight: 400; opacity: 0.75; font-size: 11px; }
+
+  /* Month filter */
+  .month-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 7px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500;
+    padding: 5px 10px; outline: none; cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .month-select:focus { border-color: var(--border-focus); }
+
+  /* Sync */
+  .sync-wrap { display: flex; align-items: center; }
+  .sync-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 7px; color: var(--text-muted);
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+    padding: 5px 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .sync-btn:hover:not(:disabled) { background: #e8eaf6; border-color: #9aa3c2; color: var(--text); }
+  .sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+
+  /* ── MAP ── */
+  #map { flex: 1; width: 100%; }
+  .leaflet-container { background: #e8ecf0; }
+  .leaflet-control-attribution { font-size: 10px !important; }
+
+  /* ── SCOUTING LEGEND (bottom right) ── */
+  .scouting-legend {
+    position: fixed; bottom: 28px; right: 14px; z-index: 1000;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .scouting-legend-title {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-light);
+    margin-bottom: 2px;
+  }
+  .scouting-toggle {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none;
+    font-size: 12px; font-weight: 500; color: var(--text);
+    transition: opacity 0.15s;
+  }
+  .scouting-toggle.off { opacity: 0.3; }
+  .scouting-toggle:hover { opacity: 0.75; }
+  .scouting-pin-preview { flex-shrink: 0; }
+
+  /* ── POPUP ── */
+  .popup-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(30,35,60,0.3);
+    z-index: 2000; align-items: center; justify-content: center;
+  }
+  .popup-overlay.active { display: flex; }
+  .popup {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; width: 440px; max-width: 95vw; max-height: 90vh;
+    overflow-y: auto; box-shadow: var(--shadow-lg); animation: popIn 0.18s ease;
+  }
+  @keyframes popIn {
+    from { transform: scale(0.95); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+  }
+  .popup-header {
+    padding: 16px 20px 13px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; background: var(--surface);
+    z-index: 1; border-radius: 16px 16px 0 0;
+  }
+  .popup-city {
+    font-size: 18px; font-weight: 600;
+    display: flex; align-items: center; gap: 10px; color: var(--text);
+  }
+  .popup-city-dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; transition: background 0.2s; }
+  .header-actions { display: flex; align-items: center; gap: 8px; }
+  .edit-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 7px; color: var(--text-muted);
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+    padding: 5px 12px; cursor: pointer; transition: all 0.15s;
+  }
+  .edit-btn:hover { background: #e8eaf6; border-color: #9aa3c2; color: var(--text); }
+  .edit-btn.active { background: #1a1d2e; border-color: #1a1d2e; color: #fff; }
+  .popup-close {
+    background: none; border: none; color: var(--text-muted);
+    font-size: 22px; cursor: pointer; padding: 0 5px;
+    border-radius: 6px; transition: color 0.15s, background 0.15s; line-height: 1;
+  }
+  .popup-close:hover { color: var(--text); background: var(--surface2); }
+
+  .popup-body { padding: 16px 20px 6px; display: flex; flex-direction: column; }
+  .field-row {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-light);
+  }
+  .field-value { font-size: 14px; color: var(--text); min-height: 20px; }
+  .field-value.empty { color: var(--text-light); font-style: italic; font-size: 13px; }
+  .field-value.mono  { font-family: 'DM Mono', monospace; font-size: 13px; }
+  .pm-badge { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+  .pm-badge-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .chips-preview { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+  .chip-preview {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: #e8eaf6; border: 1px solid #c5cae9; border-radius: 20px;
+    padding: 3px 10px; font-size: 12px; font-weight: 500; color: #3949ab;
+    text-decoration: none; transition: background 0.15s; max-width: 300px;
+  }
+  .chip-preview:hover { background: #c5cae9; }
+  .chip-preview-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+  .chip-preview-icon { font-size: 11px; opacity: 0.6; }
+
+  .field-edit { display: none; }
+  .popup.edit-mode .field-edit { display: flex; flex-direction: column; gap: 5px; }
+  .popup.edit-mode .field-value-wrap { display: none; }
+
+  .field-select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 14px;
+    padding: 9px 12px; outline: none; width: 100%; cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s; appearance: auto;
+  }
+  .field-select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(154,163,194,0.15); }
+  .field-select option { background: #fff; color: var(--text); }
+
+  .chip-area {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; min-height: 42px;
+    display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+    cursor: text; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .chip-area:focus-within { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(154,163,194,0.15); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #e8eaf6; border: 1px solid #c5cae9; border-radius: 20px;
+    padding: 3px 8px 3px 10px; font-size: 12px; font-weight: 500; color: #3949ab;
+    text-decoration: none; transition: background 0.15s; max-width: 290px;
+  }
+  .chip:hover { background: #c5cae9; }
+  .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px; }
+  .chip-remove {
+    font-size: 15px; color: var(--text-muted); cursor: pointer;
+    line-height: 1; flex-shrink: 0; transition: color 0.15s; padding: 0 2px;
+  }
+  .chip-remove:hover { color: #c62828; }
+  .chip-input {
+    background: none; border: none; outline: none; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 13px; flex: 1; min-width: 140px;
+  }
+  .chip-input::placeholder { color: var(--text-light); }
+  .chip-hint { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+  .season-readonly {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; min-height: 42px;
+    display: flex; align-items: center;
+    font-family: 'DM Mono', monospace; font-size: 13px;
+    color: var(--text-muted); font-style: italic;
+  }
+  .season-readonly.has-data { color: var(--text); font-style: normal; }
+
+  .popup-footer { padding: 14px 20px 18px; display: none; }
+  .popup.edit-mode .popup-footer { display: block; }
+  .save-btn {
+    width: 100%; padding: 11px; background: #1a1d2e; border: none;
+    border-radius: 8px; color: #fff;
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .save-btn:hover:not(:disabled) { background: #2e3354; }
+  .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(70px);
+    padding: 10px 22px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; z-index: 9999;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+    opacity: 0; pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  #toastSuccess { background: #1b5e20; color: #fff; }
+  #toastError   { background: #b71c1c; color: #fff; }
+  #toastInfo    { background: #1a237e; color: #fff; }
+
+  .loading-overlay {
+    position: fixed; inset: 0; background: rgba(244,245,247,0.92);
+    z-index: 3000; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+  }
+  .loading-overlay.hidden { display: none; }
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border);
+    border-top-color: #1a1d2e; border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; color: var(--text-muted); font-weight: 500; }
+  .sync-toast {
+    position: fixed; top: 56px; left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    background: rgba(26,29,46,0.88);
+    color: #fff; padding: 8px 18px; border-radius: 8px;
+    font-size: 12px; font-weight: 500; z-index: 1500;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease;
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  }
+  .sync-toast.show {
+    opacity: 1; transform: translateX(-50%) translateY(0);
+  }
+  .sync-toast.err { background: rgba(183,28,28,0.9); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>PM Territory Map</h1>
+  <div class="header-center" id="pmLegend"></div>
+  <div class="header-right">
+    <select class="month-select" id="monthFilter" onchange="applyFilters()">
+      <option value="all">Full year</option>
+      <option value="0">January</option>
+      <option value="1">February</option>
+      <option value="2">March</option>
+      <option value="3">April</option>
+      <option value="4">May</option>
+      <option value="5">June</option>
+      <option value="6">July</option>
+      <option value="7">August</option>
+      <option value="8">September</option>
+      <option value="9">October</option>
+      <option value="10">November</option>
+      <option value="11">December</option>
+    </select>
+    <div class="sync-wrap">
+      <button class="sync-btn" id="syncBtn" onclick="syncFromSheet()">↻ Sync</button>
+    </div>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<!-- Scouting legend bottom right -->
+<div class="scouting-legend">
+  <div class="scouting-legend-title">Scouting</div>
+  <div class="scouting-toggle" id="st-no" onclick="toggleScouting('No')">
+    <svg class="scouting-pin-preview" width="18" height="23" viewBox="0 0 28 36">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#78909c"/>
+      <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+      <polyline points="9.5,14 12.5,17 18.5,11" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    No
+  </div>
+  <div class="scouting-toggle" id="st-new" onclick="toggleScouting('Yes - home venue')">
+    <svg class="scouting-pin-preview" width="18" height="23" viewBox="0 0 28 36">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#78909c"/>
+      <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+    </svg>
+    Yes — home venue
+  </div>
+  <div class="scouting-toggle" id="st-add" onclick="toggleScouting('Yes - additional venue')">
+    <svg class="scouting-pin-preview" width="18" height="23" viewBox="0 0 28 36">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#78909c"/>
+      <rect x="12" y="6" width="10" height="10" rx="2" fill="none" stroke="white" stroke-width="1.5" opacity="0.5"/>
+      <rect x="6" y="12" width="10" height="10" rx="2" fill="#78909c" stroke="white" stroke-width="2"/>
+    </svg>
+    Yes — additional venue
+  </div>
+  <div class="scouting-toggle" id="st-closing" onclick="toggleScouting('Venue closing')">
+    <svg class="scouting-pin-preview" width="18" height="23" viewBox="0 0 28 36">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#78909c"/>
+      <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+      <circle cx="10.5" cy="14" r="1.8" fill="white"/>
+      <circle cx="14" cy="14" r="1.8" fill="white"/>
+      <circle cx="17.5" cy="14" r="1.8" fill="white"/>
+    </svg>
+    Venue closing
+  </div>
+  <div class="scouting-toggle" id="st-opp" onclick="toggleScouting('Opportunistic Venue')">
+    <svg class="scouting-pin-preview" width="18" height="23" viewBox="0 0 28 36">
+      <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="#78909c"/>
+      <rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="white" stroke-width="1.8"/>
+      <rect x="12.5" y="10" width="3" height="6" rx="1.5" fill="white"/>
+      <circle cx="14" cy="19" r="1.5" fill="white"/>
+    </svg>
+    Opportunistic Venue
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading map data…</div>
+</div>
+
+<div class="popup-overlay" id="popupOverlay">
+  <div class="popup" id="popup">
+    <div class="popup-header">
+      <div class="popup-city">
+        <div class="popup-city-dot" id="popupDot"></div>
+        <span id="popupCityName"></span>
+      </div>
+      <div class="header-actions">
+        <button class="edit-btn" id="editBtn" onclick="toggleEdit()">✏️ Edit</button>
+        <button class="popup-close" onclick="closePopup()">×</button>
+      </div>
+    </div>
+    <div class="popup-body">
+
+      <div class="field-row">
+        <div class="field-label">Project Manager</div>
+        <div class="field-value-wrap"><div class="field-value" id="viewPM"></div></div>
+        <div class="field-edit">
+          <select class="field-select" id="fieldPM" onchange="onPMChange()">
+            <option value="Unassigned">— Unassigned —</option>
+            <option value="Jeremy">Jeremy</option>
+            <option value="Victoria">Victoria</option>
+            <option value="Meghan">Meghan</option>
+            <option value="Eric">Eric</option>
+            <option value="Emi">Emi</option>
+            <option value="Dank">Dank</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Home Venue</div>
+        <div class="field-value-wrap"><div class="chips-preview" id="viewHomeVenues"></div></div>
+        <div class="field-edit">
+          <div class="chip-area" id="homeVenueArea" onclick="focusInput('homeVenueInput')">
+            <input class="chip-input" id="homeVenueInput" placeholder="Paste Google Maps link + Enter" onkeydown="handleChipKey(event,'home')">
+          </div>
+          <div class="chip-hint">One venue — paste a Google Maps URL and press Enter</div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Alternate Venues</div>
+        <div class="field-value-wrap"><div class="chips-preview" id="viewAltVenues"></div></div>
+        <div class="field-edit">
+          <div class="chip-area" id="altVenueArea" onclick="focusInput('altVenueInput')">
+            <input class="chip-input" id="altVenueInput" placeholder="Paste Google Maps link + Enter" onkeydown="handleChipKey(event,'alt')">
+          </div>
+          <div class="chip-hint">Up to 3 links — each becomes a chip</div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Scouting</div>
+        <div class="field-value-wrap"><div class="field-value" id="viewScouting"></div></div>
+        <div class="field-edit">
+          <select class="field-select" id="fieldScouting">
+            <option value="No">No</option>
+            <option value="Yes - home venue">Yes — home venue</option>
+            <option value="Yes - additional venue">Yes — additional venue</option>
+            <option value="Venue closing">Venue closing</option>
+            <option value="Opportunistic Venue">Opportunistic Venue</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Scout</div>
+        <div class="field-value-wrap"><div class="field-value" id="viewScout"></div></div>
+        <div class="field-edit">
+          <select class="field-select" id="fieldScout">
+            <option value="Unassigned">— Unassigned —</option>
+            <option value="Amanda">Amanda</option>
+            <option value="Hannah">Hannah</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label">Season</div>
+        <div class="field-value-wrap"><div class="field-value mono" id="viewSeason"></div></div>
+        <div class="field-edit">
+          <div class="season-readonly" id="viewSeasonEdit"></div>
+          <div class="chip-hint">Calculated from your sheet — edit percentages there to update</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="popup-footer">
+      <button class="save-btn" id="saveBtn" onclick="saveCity()">
+        <span id="saveBtnText">Save Changes</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="sync-toast" id="syncToast"></div>
+<div class="toast" id="toastSuccess">✓ Saved to sheet</div>
+<div class="toast" id="toastError">✕ Save failed — try again</div>
+<div class="toast" id="toastInfo">↻ Map synced</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyuzCFm0JeD164I-6yvOZnn4inc2Fzh74RW-dHe0RRbnEus_F9xLcca7iUN6eNsbD7o/exec';
+
+const PM_COLORS = {
+  Jeremy:'#9c27b0', Victoria:'#1976d2', Meghan:'#c49000',
+  Eric:'#e65100', Emi:'#2e7d32', Dank:'#c62828', Unassigned:'#78909c'
+};
+const PMS = ['Jeremy','Victoria','Meghan','Eric','Emi','Dank','Unassigned'];
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const THRESHOLD = 70;
+
+const CITY_COORDS = {
+  'Albuquerque':[35.0844,-106.6504],'Atlanta':[33.7501,-84.3885],
+  'Austin':[30.2672,-97.7431],'Boston':[42.3555,-71.0565],
+  'Chicago':[41.8832,-87.6324],'Dallas':[32.7767,-96.7970],
+  'Denver':[39.7392,-104.9903],'Detroit':[42.3297,-83.0425],
+  'Houston':[29.7601,-95.3701],'Jacksonville':[30.3298,-81.6592],
+  'Los Angeles':[34.0549,-118.2426],'Miami':[25.7617,-80.1918],
+  'Minneapolis':[44.9778,-93.2650],'Nashville':[36.1627,-86.7816],
+  'New York':[40.7128,-74.0060],'Orange County':[33.7175,-117.8311],
+  'Philadelphia':[39.9526,-75.1652],'Phoenix':[33.4483,-112.0740],
+  'Sacramento':[38.5781,-121.4944],'San Antonio':[29.4252,-98.4946],
+  'San Diego':[32.7157,-117.1611],'San Francisco':[37.7749,-122.4194],
+  'San Jose':[37.3387,-121.8853],'Seattle':[47.6061,-122.3328],
+  'Tampa':[27.9517,-82.4588],'Fort Lauderdale':[26.1224,-80.1373],
+  'Indianapolis':[39.7691,-86.1580],'Salt Lake City':[40.7606,-111.8881],
+  'Portland':[45.5152,-122.6784],'Charlotte':[35.2271,-80.8431],
+  'St. Louis':[38.6270,-90.1994],
+};
+
+const FALLBACK = [];
+
+// ── FILTER STATE ──────────────────────────────────────────────────────────────
+// Toggle state: null = all on, else Set of VISIBLE items
+let visiblePMs = null;
+let visibleScouting = null;
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+let CITIES = [];
+let hasSynced = false;
+let currentCityIndex = null;
+let homeVenuesList = [], altVenuesList = [];
+let isEditMode = false;
+
+function calcSeason(pcts) {
+  if (!pcts || !pcts.length) return '';
+  const above = pcts.map((p,i) => p >= THRESHOLD ? i : -1).filter(i => i >= 0);
+  if (!above.length) return '';
+  const runs = [];
+  let s = above[0], e = above[0];
+  for (let i=1;i<above.length;i++) {
+    if (above[i]===e+1) e=above[i];
+    else { runs.push([s,e]); s=above[i]; e=above[i]; }
+  }
+  runs.push([s,e]);
+  return runs.map(([s,e]) => s===e ? MONTHS[s] : `${MONTHS[s]}–${MONTHS[e]}`).join(', ');
+}
+
+function pctToNum(str) { return parseFloat(String(str||'0').replace('%',''))||0; }
+
+function rowsToCity(rows) {
+  return rows.filter(r=>r['City']&&String(r['City']).trim()&&String(r['City']).trim()!=='City').map(row=>{
+    const name = String(row['City']).trim();
+    const coords = CITY_COORDS[name]||null;
+    const monthPcts = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map(m=>pctToNum(row[m]));
+    const altVenues = ['Alt Venue 1','Alt Venue 2','Alt Venue 3'].map(k=>String(row[k]||'').trim()).filter(Boolean);
+    const homeVenue = String(row['Home Venue']||'').trim();
+    const season = String(row['Season']||'').trim() || calcSeason(monthPcts);
+    return {
+      name, lat:coords?coords[0]:null, lng:coords?coords[1]:null, needsGeocode:!coords, monthPcts,
+      pm: String(row['PM']||'').trim() || 'Unassigned',
+      scout: String(row['Scout']||'Unassigned').trim(),
+      scouting: (function() {
+        const raw = String(row['Scouting']||'No').trim();
+        const map = {
+          'no': 'No',
+          'yes - home venue': 'Yes - home venue',
+          'yes - additional venue': 'Yes - additional venue',
+          'venue closing': 'Venue closing',
+          'opportunistic venue': 'Opportunistic Venue',
+        };
+        return map[raw.toLowerCase()] || raw;
+      })(),
+      homeVenues: homeVenue?[homeVenue]:[],
+      altVenues, season,
+    };
+  });
+}
+
+// ── GEOCODING ────────────────────────────────────────────────────────────────
+const geocodeCache = {};
+
+async function geocodeCity(name) {
+  if (geocodeCache[name]) return geocodeCache[name];
+  try {
+    const res = await fetch(
+      'https://nominatim.openstreetmap.org/search?q=' +
+      encodeURIComponent(name + ', USA') +
+      '&format=json&limit=1',
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+    if (data && data.length > 0) {
+      const coords = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      geocodeCache[name] = coords;
+      return coords;
+    }
+  } catch(e) { console.warn('Geocode failed for', name, e); }
+  return null;
+}
+
+// ── MAP ───────────────────────────────────────────────────────────────────────
+const map = L.map('map',{center:[38.5,-96],zoom:4,zoomControl:true,attributionControl:true});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:18
+}).addTo(map);
+
+const leafletMarkers = [];
+const ghostMarkers = [];
+let ghostHoverIndex = null;
+let ghostHideTimer = null;
+
+function makePinSvg(pmColor, scouting, grayed) {
+  const fill = grayed ? '#b0b8c8' : pmColor;
+  let icon = '';
+  if (!grayed) {
+    if (scouting === 'No') {
+      icon = `
+        <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+        <polyline points="9.5,14 12.5,17 18.5,11" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+    } else if (scouting === 'Yes - home venue') {
+      icon = `<rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>`;
+    } else if (scouting === 'Yes - additional venue') {
+      icon = `
+        <rect x="12" y="6" width="10" height="10" rx="2" fill="none" stroke="white" stroke-width="1.5" opacity="0.5"/>
+        <rect x="6" y="12" width="10" height="10" rx="2" fill="${fill}" stroke="white" stroke-width="2"/>`;
+    } else if (scouting === 'Venue closing') {
+      icon = `
+        <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+        <circle cx="10.5" cy="14" r="1.8" fill="white"/>
+        <circle cx="14"   cy="14" r="1.8" fill="white"/>
+        <circle cx="17.5" cy="14" r="1.8" fill="white"/>`;
+    } else {
+      // Opportunistic Venue
+      icon = `
+        <rect x="7" y="7" width="14" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2"/>
+        <rect x="12.5" y="10" width="3" height="5.5" rx="1.5" fill="white"/>
+        <circle cx="14" cy="17.5" r="1.8" fill="white"/>`;
+    }
+  } else {
+    icon = `<circle cx="14" cy="14" r="5" fill="white" opacity="0.5"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22S28 24.5 28 14C28 6.27 21.73 0 14 0z" fill="${fill}" opacity="${grayed?'0.5':'0.93'}"/>
+    ${icon}
+  </svg>`;
+}
+
+function makeIcon(pmColor, scouting, grayed) {
+  return L.divIcon({
+    html: makePinSvg(pmColor, scouting, grayed),
+    className:'', iconSize:[28,36], iconAnchor:[14,36]
+  });
+}
+
+function getMarkerVisibility(city) {
+  if (visiblePMs !== null && !visiblePMs.has(city.pm)) return 'hidden';
+  if (visibleScouting !== null && !visibleScouting.has(city.scouting)) return 'hidden';
+  const monthVal = document.getElementById('monthFilter').value;
+  if (monthVal !== 'all') {
+    const idx = parseInt(monthVal);
+    if (!city.monthPcts || !city.monthPcts.length) return 'grayed';
+    if (!city.monthPcts[idx] && city.monthPcts[idx] !== 0) return 'grayed';
+    if (city.monthPcts[idx] < THRESHOLD) return 'hidden';
+  }
+  return 'visible';
+}
+
+function refreshMarker(i) {
+  const city = CITIES[i];
+  const vis = getMarkerVisibility(city);
+  const m = leafletMarkers[i];
+  if (!m) return;
+  if (vis === 'hidden') {
+    m.setOpacity(0);
+    const el = m.getElement(); if (el) el.style.pointerEvents = 'none';
+    // Ensure ghost exists
+    if (!ghostMarkers[i]) {
+      const ghost = L.marker([city.lat,city.lng],{
+        icon: makeGhostIcon(PM_COLORS[city.pm]||PM_COLORS.Unassigned), title: city.name, zIndexOffset: 10
+      }).addTo(map);
+      ghost.on('mouseover', () => showGhost(i));
+      ghost.on('mouseout',  () => hideGhost(i));
+      ghost.on('click',     () => { clearTimeout(ghostHideTimer); openPopup(i); });
+      ghostMarkers[i] = ghost;
+    }
+  } else {
+    m.setOpacity(1);
+    const el = m.getElement(); if (el) el.style.pointerEvents = '';
+    const grayed = vis === 'grayed';
+    m.setIcon(makeIcon(PM_COLORS[city.pm]||PM_COLORS.Unassigned, city.scouting, grayed));
+    // Remove ghost if visible
+    if (ghostMarkers[i]) { map.removeLayer(ghostMarkers[i]); ghostMarkers[i] = null; }
+  }
+}
+
+function applyFilters() {
+  CITIES.forEach((_,i) => refreshMarker(i));
+}
+
+function makeGhostIcon(color) {
+  return L.divIcon({
+    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};opacity:0.25;cursor:pointer;"></div>`,
+    className:'', iconSize:[14,14], iconAnchor:[7,7]
+  });
+}
+
+function showGhost(i) {
+  if (ghostHideTimer) { clearTimeout(ghostHideTimer); ghostHideTimer = null; }
+  // Hide any previously stuck ghost
+  if (ghostHoverIndex !== null && ghostHoverIndex !== i) {
+    forceHideGhost(ghostHoverIndex);
+  }
+  const m = leafletMarkers[i];
+  if (!m) return;
+  ghostHoverIndex = i;
+  m.setOpacity(0.5);
+  const el = m.getElement();
+  if (el) { el.style.pointerEvents = ''; el.style.transition = 'opacity 0.2s'; }
+}
+
+function forceHideGhost(i) {
+  const vis = getMarkerVisibility(CITIES[i]);
+  if (vis === 'hidden') {
+    const m = leafletMarkers[i];
+    if (!m) return;
+    m.setOpacity(0);
+    const el = m.getElement();
+    if (el) { el.style.pointerEvents = 'none'; }
+  }
+  if (ghostHoverIndex === i) ghostHoverIndex = null;
+}
+
+function hideGhost(i) {
+  ghostHideTimer = setTimeout(() => {
+    if (ghostHoverIndex !== i) return;
+    const vis = getMarkerVisibility(CITIES[i]);
+    if (vis === 'hidden') {
+      const m = leafletMarkers[i];
+      if (!m) return;
+      m.setOpacity(0);
+      const el = m.getElement();
+      if (el) el.style.pointerEvents = 'none';
+    }
+    ghostHoverIndex = null;
+  }, 120);
+}
+
+function initMarkers() {
+  leafletMarkers.forEach(m => { if(m) map.removeLayer(m); });
+  leafletMarkers.length = 0;
+  ghostMarkers.forEach(m => { if(m) map.removeLayer(m); });
+  ghostMarkers.length = 0;
+
+  CITIES.forEach((city,i) => {
+    if (!city.lat||!city.lng||city.needsGeocode) { leafletMarkers.push(null); ghostMarkers.push(null); return; }
+    const vis = getMarkerVisibility(city);
+    const grayed = vis === 'grayed';
+    const m = L.marker([city.lat,city.lng],{
+      icon: makeIcon(PM_COLORS[city.pm]||PM_COLORS.Unassigned, city.scouting, grayed),
+      title: city.name, zIndexOffset: 0
+    }).addTo(map).on('click',()=>openPopup(i));
+    if (vis==='hidden') {
+      m.setOpacity(0);
+      const el = m.getElement();
+      if (el) el.style.pointerEvents = 'none';
+      // Ghost hover target
+      const ghost = L.marker([city.lat,city.lng],{
+        icon: makeGhostIcon(PM_COLORS[city.pm]||PM_COLORS.Unassigned), title: city.name, zIndexOffset: 10
+      }).addTo(map);
+      ghost.on('mouseover', () => showGhost(i));
+      ghost.on('mouseout',  () => hideGhost(i));
+      ghost.on('click',     () => { clearTimeout(ghostHideTimer); openPopup(i); });
+      ghostMarkers.push(ghost);
+    } else {
+      m.on('mouseover', () => { if(ghostHoverIndex===i) clearTimeout(ghostHideTimer); });
+      ghostMarkers.push(null);
+    }
+    leafletMarkers.push(m);
+  });
+  buildPMLegend();
+}
+
+// ── PM LEGEND ─────────────────────────────────────────────────────────────────
+function buildPMLegend() {
+  const container = document.getElementById('pmLegend');
+  container.innerHTML = '';
+  PMS.forEach(pm => {
+    const total = CITIES.filter(c => (c.pm && c.pm.trim() ? c.pm.trim() : 'Unassigned') === pm).length;
+    if (total === 0) return;
+    const isOn = visiblePMs === null || visiblePMs.has(pm);
+    const pill = document.createElement('div');
+    pill.id = 'pm-pill-' + pm;
+    pill.className = 'pm-toggle' + (isOn ? '' : ' off');
+    pill.style.background = PM_COLORS[pm] + '18';
+    pill.style.borderColor = PM_COLORS[pm] + '55';
+    pill.style.color = PM_COLORS[pm];
+    pill.innerHTML = `<span class="pm-dot" style="background:${PM_COLORS[pm]}"></span>${pm}<span class="pm-count">(${total})</span>`;
+    pill.onclick = () => togglePM(pm);
+    container.appendChild(pill);
+  });
+}
+
+function togglePM(pm) {
+  const allPMs = PMS.filter(p => CITIES.some(c => (c.pm && c.pm.trim() ? c.pm.trim() : 'Unassigned') === p));
+  if (visiblePMs === null) {
+    // All on → isolate clicked one
+    visiblePMs = new Set([pm]);
+  } else if (visiblePMs.has(pm)) {
+    visiblePMs.delete(pm);
+    // If none left, reset to all on
+    if (visiblePMs.size === 0) visiblePMs = null;
+  } else {
+    visiblePMs.add(pm);
+    // If all are on, reset to null (all on)
+    if (allPMs.every(p => visiblePMs.has(p))) visiblePMs = null;
+  }
+  // Update pill styles
+  allPMs.forEach(p => {
+    const pill = document.getElementById('pm-pill-' + p);
+    if (!pill) return;
+    const isOn = visiblePMs === null || visiblePMs.has(p);
+    pill.classList.toggle('off', !isOn);
+  });
+  applyFilters();
+}
+
+// ── SCOUTING TOGGLES ──────────────────────────────────────────────────────────
+function toggleScouting(status) {
+  const all = ['No','Yes - home venue','Yes - additional venue','Venue closing','Opportunistic Venue'];
+  const idMap = {'No':'st-no','Yes - home venue':'st-new','Yes - additional venue':'st-add','Venue closing':'st-closing','Opportunistic Venue':'st-opp'};
+  if (visibleScouting === null) {
+    visibleScouting = new Set([status]);
+  } else if (visibleScouting.has(status)) {
+    visibleScouting.delete(status);
+    if (visibleScouting.size === 0) visibleScouting = null;
+  } else {
+    visibleScouting.add(status);
+    if (all.every(s => visibleScouting.has(s))) visibleScouting = null;
+  }
+  all.forEach(s => {
+    const isOn = visibleScouting === null || visibleScouting.has(s);
+    document.getElementById(idMap[s]).classList.toggle('off', !isOn);
+  });
+  applyFilters();
+}
+
+// ── JSONP ─────────────────────────────────────────────────────────────────────
+function jsonpFetch(url) {
+  return new Promise((resolve,reject)=>{
+    const cb='_cb'+Date.now()+Math.floor(Math.random()*9999);
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>{cleanup();reject(new Error('Timeout'));},15000);
+    function cleanup(){clearTimeout(timer);delete window[cb];if(script.parentNode)script.remove();}
+    window[cb]=(data)=>{cleanup();resolve(data);};
+    script.onerror=()=>{cleanup();reject(new Error('Load error'));};
+    script.src=url+(url.includes('?')?'&':'?')+'callback='+cb;
+    document.head.appendChild(script);
+  });
+}
+
+// ── SYNC ──────────────────────────────────────────────────────────────────────
+function showSyncToast(msg, isErr) {
+  const t = document.getElementById('syncToast');
+  t.textContent = msg;
+  t.className = 'sync-toast' + (isErr ? ' err' : '');
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 5000);
+}
+
+async function syncFromSheet(manual=false) {
+  const btn=document.getElementById('syncBtn');
+  btn.disabled=true; btn.textContent='↻ Syncing…';
+  try {
+    const json=await jsonpFetch(SCRIPT_URL);
+    if(!json.success) throw new Error(json.error||'Unknown');
+    CITIES=rowsToCity(json.rows);
+    hasSynced = true;
+    // Geocode any cities missing coordinates, then do a full rebuild
+    const missing = CITIES.filter(c => c.needsGeocode);
+    if (missing.length > 0) {
+      initMarkers(); // show known cities immediately
+      await Promise.all(missing.map(async city => {
+        const coords = await geocodeCity(city.name);
+        if (coords) {
+          city.lat = coords[0];
+          city.lng = coords[1];
+          city.needsGeocode = false;
+        }
+      }));
+      initMarkers(); // full rebuild with all coords now resolved
+    } else {
+      initMarkers(); // full rebuild, removes any deleted cities
+    }
+    showSyncToast('Synced at ' + new Date().toLocaleTimeString(), false);
+  } catch(e) {
+    console.error('Sync:',e);
+    if(CITIES.length===0){CITIES=FALLBACK;initMarkers();showSyncToast('Sync failed — using cached data', true);}else{showSyncToast('Sync failed', true);}
+  }
+  btn.disabled=false; btn.textContent='↻ Sync';
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// ── SAVE ──────────────────────────────────────────────────────────────────────
+async function saveCity() {
+  if(currentCityIndex===null) return;
+  const city=CITIES[currentCityIndex];
+  const newPM=document.getElementById('fieldPM').value;
+  const newScout=document.getElementById('fieldScout').value;
+  const newScouting=document.getElementById('fieldScouting').value;
+  const newHome=[...homeVenuesList];
+  const newAlt=[...altVenuesList];
+  city.pm=newPM; city.scout=newScout; city.scouting=newScouting;
+  city.homeVenues=newHome; city.altVenues=newAlt;
+  refreshMarker(currentCityIndex);
+  buildPMLegend();
+  isEditMode=false;
+  document.getElementById('popup').classList.remove('edit-mode');
+  document.getElementById('editBtn').classList.remove('active');
+  document.getElementById('editBtn').textContent='✏️ Edit';
+  populatePreview(currentCityIndex);
+  const btn=document.getElementById('saveBtn');
+  const btnText=document.getElementById('saveBtnText');
+  btn.disabled=true; btnText.textContent='Saving…';
+  try {
+    const params=new URLSearchParams({
+      write:'1', city:city.name,
+      PM: newPM==='Unassigned'?'':newPM,
+      Scout: newScout==='Unassigned'?'':newScout,
+      Scouting: newScouting,
+      HomeVenue: newHome[0]||'',
+      AltVenue1: newAlt[0]||'',
+      AltVenue2: newAlt[1]||'',
+      AltVenue3: newAlt[2]||'',
+    });
+    const json=await jsonpFetch(SCRIPT_URL+'?'+params.toString());
+    if(!json.success) throw new Error(json.error||'Write failed');
+    showToast('success');
+  } catch(e) { console.error('Save:',e); showToast('error'); }
+  btn.disabled=false; btnText.textContent='Save Changes';
+}
+
+// ── POPUP ─────────────────────────────────────────────────────────────────────
+function openPopup(index) {
+  currentCityIndex=index; isEditMode=false;
+  document.getElementById('popup').classList.remove('edit-mode');
+  document.getElementById('editBtn').classList.remove('active');
+  document.getElementById('editBtn').textContent='✏️ Edit';
+  populatePreview(index);
+  document.getElementById('popupOverlay').classList.add('active');
+}
+function closePopup() {
+  document.getElementById('popupOverlay').classList.remove('active');
+  currentCityIndex=null; isEditMode=false;
+}
+document.getElementById('popupOverlay').addEventListener('click',function(e){if(e.target===this)closePopup();});
+
+function populatePreview(index) {
+  const city=CITIES[index];
+  document.getElementById('popupCityName').textContent=city.name;
+  document.getElementById('popupDot').style.background=PM_COLORS[city.pm]||PM_COLORS.Unassigned;
+  const pmEl=document.getElementById('viewPM');
+  if(city.pm&&city.pm!=='Unassigned'){
+    pmEl.innerHTML=`<span class="pm-badge"><span class="pm-badge-dot" style="background:${PM_COLORS[city.pm]}"></span>${city.pm}</span>`;
+    pmEl.classList.remove('empty');
+  } else {pmEl.textContent='Unassigned';pmEl.classList.add('empty');}
+  renderPreviewChips('viewHomeVenues',city.homeVenues||[],'No home venue set');
+  renderPreviewChips('viewAltVenues',city.altVenues||[],'No alternate venues set');
+  const scEl=document.getElementById('viewScouting');
+  scEl.textContent=city.scouting||'No';
+  scEl.classList.toggle('empty',!city.scouting||city.scouting==='No');
+  const stEl=document.getElementById('viewScout');
+  if(city.scout&&city.scout!=='Unassigned'){stEl.textContent=city.scout;stEl.classList.remove('empty');}
+  else{stEl.textContent='Unassigned';stEl.classList.add('empty');}
+  const seEl=document.getElementById('viewSeason');
+  if(city.season){seEl.textContent=city.season;seEl.classList.remove('empty');}
+  else{seEl.textContent='No season data';seEl.classList.add('empty');}
+}
+
+function renderPreviewChips(id,venues,emptyMsg) {
+  const el=document.getElementById(id); el.innerHTML='';
+  if(!venues.length){el.innerHTML=`<span class="field-value empty">${emptyMsg}</span>`;return;}
+  venues.forEach(url=>{
+    const a=document.createElement('a');
+    a.className='chip-preview'; a.href=url; a.target='_blank'; a.rel='noopener noreferrer';
+    a.innerHTML=`<span class="chip-preview-icon">🔗</span><span class="chip-preview-label">${extractVenueName(url)}</span>`;
+    el.appendChild(a);
+  });
+}
+
+function toggleEdit() {
+  isEditMode=!isEditMode;
+  const popup=document.getElementById('popup');
+  const btn=document.getElementById('editBtn');
+  if(isEditMode){popup.classList.add('edit-mode');btn.classList.add('active');btn.textContent='✕ Cancel';populateEditFields(currentCityIndex);}
+  else{popup.classList.remove('edit-mode');btn.classList.remove('active');btn.textContent='✏️ Edit';populatePreview(currentCityIndex);}
+}
+
+function populateEditFields(index) {
+  const city=CITIES[index];
+  document.getElementById('fieldPM').value=city.pm||'Unassigned';
+  document.getElementById('fieldScout').value=city.scout||'Unassigned';
+  document.getElementById('fieldScouting').value=city.scouting||'No';
+  const se=document.getElementById('viewSeasonEdit');
+  se.textContent=city.season||'No season data'; se.classList.toggle('has-data',!!city.season);
+  homeVenuesList=[...(city.homeVenues||[])];
+  altVenuesList=[...(city.altVenues||[])];
+  renderEditChips('home'); renderEditChips('alt');
+}
+
+function onPMChange() {
+  document.getElementById('popupDot').style.background=PM_COLORS[document.getElementById('fieldPM').value]||PM_COLORS.Unassigned;
+}
+
+function renderEditChips(type) {
+  const areaId=type==='home'?'homeVenueArea':'altVenueArea';
+  const inputId=type==='home'?'homeVenueInput':'altVenueInput';
+  const list=type==='home'?homeVenuesList:altVenuesList;
+  const area=document.getElementById(areaId);
+  const input=document.getElementById(inputId);
+  area.querySelectorAll('.chip').forEach(c=>c.remove());
+  list.forEach((url,i)=>{
+    const chip=document.createElement('a');
+    chip.className='chip'; chip.href=url; chip.target='_blank'; chip.rel='noopener noreferrer';
+    const label=document.createElement('span'); label.className='chip-label'; label.textContent=extractVenueName(url);
+    const rem=document.createElement('span'); rem.className='chip-remove'; rem.textContent='×';
+    rem.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();
+      if(type==='home')homeVenuesList.splice(i,1);else altVenuesList.splice(i,1);
+      renderEditChips(type);
+    });
+    chip.appendChild(label); chip.appendChild(rem); area.insertBefore(chip,input);
+  });
+}
+
+function extractVenueName(url) {
+  try {
+    const u=new URL(url);
+    const q=u.searchParams.get('q');
+    if(q) return decodeURIComponent(q).replace(/\+/g,' ');
+    const m=u.pathname.match(/place\/([^/@]+)/);
+    if(m) return decodeURIComponent(m[1]).replace(/\+/g,' ');
+    return u.hostname.replace('www.','');
+  } catch {return url.length>38?url.substring(0,38)+'…':url;}
+}
+
+function focusInput(id){document.getElementById(id).focus();}
+
+function handleChipKey(e,type) {
+  if(e.key!=='Enter')return;
+  e.preventDefault();
+  const val=e.target.value.trim(); if(!val)return;
+  if(type==='home')homeVenuesList=[val];
+  else if(altVenuesList.length<3)altVenuesList.push(val);
+  renderEditChips(type); e.target.value='';
+}
+
+function showToast(type) {
+  const id=type==='success'?'toastSuccess':type==='error'?'toastError':'toastInfo';
+  const t=document.getElementById(id);
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+syncFromSheet(false);
+</script>
+</body>
+</html>
