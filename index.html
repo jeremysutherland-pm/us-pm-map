@@ -164,6 +164,20 @@
   .popup.edit-mode .priority-badge { display: none; }
   .popup.edit-mode .priority-select-inline { display: inline-block; }
 
+  .priority-details-btn {
+    background: none; border: none; outline: none;
+    font-family: 'DM Sans', sans-serif; font-size: 10px; font-weight: 600;
+    color: var(--text-light); cursor: pointer; padding: 2px 4px;
+    letter-spacing: 0.04em; transition: color 0.15s;
+  }
+  .priority-details-btn:hover { color: var(--text-muted); }
+  .priority-detail-desc {
+    display: none; font-size: 11px; color: var(--text-muted);
+    margin-top: 1px; line-height: 1.3;
+  }
+  .priority-legend.show-details .priority-detail-desc { display: block; }
+  .priority-legend.show-details .scouting-toggle { align-items: flex-start; }
+
   /* ── SCOUTING LEGEND (bottom right) ── */
   .scouting-legend {
     position: fixed; bottom: 28px; right: 14px; z-index: 1000;
@@ -268,6 +282,17 @@
   }
   .field-select:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(154,163,194,0.15); }
   .field-select option { background: #fff; color: var(--text); }
+
+  .field-textarea {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 14px;
+    padding: 9px 12px; outline: none; width: 100%; min-height: 64px;
+    resize: vertical; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field-textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(154,163,194,0.15); }
+  .field-textarea::placeholder { color: var(--text-light); }
+  .field-value.notes { white-space: pre-wrap; }
 
   .chip-area {
     background: var(--surface2); border: 1px solid var(--border);
@@ -457,7 +482,10 @@
 
 <!-- Priority legend above scouting -->
 <div class="priority-legend" id="priorityLegend" style="display:none;">
-  <div class="scouting-legend-title">Priority</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+    <div class="scouting-legend-title">Priority</div>
+    <button class="priority-details-btn" id="priorityDetailsBtn" onclick="togglePriorityDetails()">ⓘ Details</button>
+  </div>
 </div>
 
 <!-- Scouting legend bottom right -->
@@ -531,6 +559,9 @@
           <option value="">— Priority —</option>
           <option value="Prio 1">Prio 1</option>
           <option value="Prio 2">Prio 2</option>
+          <option value="Prio 3">Prio 3</option>
+          <option value="Prio 4">Prio 4</option>
+          <option value="Prio 5">Prio 5</option>
         </select>
         <button class="edit-btn" id="editBtn" onclick="toggleEdit()">✏️ Edit</button>
       </div>
@@ -610,6 +641,14 @@
         </div>
       </div>
 
+      <div class="field-row">
+        <div class="field-label">Notes</div>
+        <div class="field-value-wrap"><div class="field-value notes" id="viewNotes"></div></div>
+        <div class="field-edit">
+          <textarea class="field-textarea" id="fieldNotes" rows="3" placeholder="Add notes…"></textarea>
+        </div>
+      </div>
+
     </div>
     <div class="popup-footer">
       <button class="save-btn" id="saveBtn" onclick="saveCity()">
@@ -631,12 +670,12 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxE3xgjfMBX17nV3OgU9
 const PM_COLORS = {
   Jeremy:'#6a1b9a', Victoria:'#1976d2', Meghan:'#c49000',
   Eric:'#e65100', Emi:'#2e7d32', Dank:'#c62828',
-  Alissa:'#00838f', Matheos:'#9c27b0', Unassigned:'#78909c'
+  Alissa:'#00838f', Matheos:'#9c27b0', 'Juan Pablo':'#00695c', Unassigned:'#78909c'
 };
 const COUNTRY_CONFIG = {
   USA: { flag: '🇺🇸', pms: ['Jeremy','Victoria','Meghan','Eric','Emi','Dank'], suffix: ', USA' },
   CAN: { flag: '🇨🇦', pms: ['Alissa'], suffix: ', Canada' },
-  MEX: { flag: '🇲🇽', pms: [], suffix: ', Mexico' },
+  MEX: { flag: '🇲🇽', pms: ['Juan Pablo'], suffix: ', Mexico' },
   BRZ: { flag: '🇧🇷', pms: ['Matheos'], suffix: ', Brazil' },
 };
 const countryVisible = { USA: true, CAN: false, MEX: false, BRZ: false };
@@ -656,9 +695,17 @@ function parseCountryCode(cityRaw) {
   }
   return { name: correctAccents(cityRaw.trim()), code: 'USA' };
 }
-const PMS = ['Jeremy','Victoria','Eric','Emi','Dank','Alissa','Matheos','Unassigned'];
+const PMS = ['Jeremy','Victoria','Eric','Emi','Dank','Alissa','Matheos','Juan Pablo','Unassigned'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const THRESHOLD = 70;
+const PRIORITY_DETAILS = {
+  'Prio 1': 'Keystone DAS City, 2 shows',
+  'Prio 2': 'Strong DAS City, 2 shows',
+  'Prio 3': 'DAS City, 1 show',
+  'Prio 4': 'DAS Expansion Candidate City, 0 shows',
+  'Prio 5': 'DAS Deprioritized City, 0 shows',
+};
+let priorityDetailsOpen = false;
 
 const CITY_COORDS = {
   'Albuquerque':[35.0844,-106.6504],'Atlanta':[33.7501,-84.3885],
@@ -746,6 +793,7 @@ function rowsToCity(rows) {
       })(),
       homeVenues: homeVenue?[homeVenue]:[],
       altVenues, season,
+      notes: String(row['Notes']||'').trim(),
     };
   });
 }
@@ -1080,6 +1128,7 @@ function updateLogoColor() {
     'Dank':    'brightness(0) saturate(100%) invert(22%) sepia(90%) saturate(1400%) hue-rotate(345deg) brightness(90%)',
     'Alissa':  'brightness(0) saturate(100%) invert(40%) sepia(80%) saturate(600%) hue-rotate(140deg) brightness(85%)',
     'Matheos': 'brightness(0) saturate(100%) invert(28%) sepia(60%) saturate(1500%) hue-rotate(260deg) brightness(100%)',
+    'Juan Pablo': 'brightness(0) saturate(100%) invert(35%) sepia(45%) saturate(900%) hue-rotate(130deg) brightness(85%)',
   };
   logo.style.filter = filters[pm] || 'brightness(0)';
 }
@@ -1201,6 +1250,7 @@ async function saveCity() {
   const newScouting=document.getElementById('fieldScouting').value;
   const newHome=[...homeVenuesList];
   const newAlt=[...altVenuesList];
+  const newNotes=document.getElementById('fieldNotes').value;
   const btn=document.getElementById('saveBtn');
   const btnText=document.getElementById('saveBtnText');
   btn.disabled=true; btnText.textContent='Saving…';
@@ -1220,12 +1270,14 @@ async function saveCity() {
       AltVenue1: newAlt[0]||'',
       AltVenue2: newAlt[1]||'',
       AltVenue3: newAlt[2]||'',
+      Notes: newNotes,
     });
     const json=await jsonpFetch(SCRIPT_URL+'?'+params.toString());
     if(!json.success) throw new Error(json.error||'Write failed');
     // Only update local state after confirmed save
     city.pm=newPM; city.scout=newScout; city.scouting=newScouting;
     city.priority=newPriority2; city.homeVenues=newHome; city.altVenues=newAlt;
+    city.notes=newNotes;
     refreshMarker(currentCityIndex);
     buildPMLegend();
     isEditMode=false;
@@ -1279,6 +1331,9 @@ function populatePreview(index) {
   const seEl=document.getElementById('viewSeason');
   if(city.season){seEl.textContent=city.season;seEl.classList.remove('empty');}
   else{seEl.textContent='No season data';seEl.classList.add('empty');}
+  const noEl=document.getElementById('viewNotes');
+  if(city.notes){noEl.textContent=city.notes;noEl.classList.remove('empty');}
+  else{noEl.textContent='No notes';noEl.classList.add('empty');}
 }
 
 function renderPreviewChips(id,venues,emptyMsg) {
@@ -1320,6 +1375,7 @@ function populateEditFields(index) {
   document.getElementById('fieldScouting').value=city.scouting||'No';
   const se=document.getElementById('viewSeasonEdit');
   se.textContent=city.season||'No season data'; se.classList.toggle('has-data',!!city.season);
+  document.getElementById('fieldNotes').value=city.notes||'';
   homeVenuesList=[...(city.homeVenues||[])];
   altVenuesList=[...(city.altVenues||[])];
   renderEditChips('home'); renderEditChips('alt');
@@ -1492,13 +1548,23 @@ function buildPriorityLegend() {
     row.id = 'pt-' + p.replace(/\s+/g,'');
     // Extract number from "Prio 1", "Prio 2" etc.
     const num = p.replace(/[^0-9]/g,'') || p;
-    row.innerHTML = `<span style="font-size:14px;font-weight:800;color:var(--text-muted);width:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1;">${num}</span><span style="line-height:1;display:flex;align-items:center;">${p}</span>`;
+    const desc = PRIORITY_DETAILS[p] || '';
+    row.innerHTML = `<span style="font-size:14px;font-weight:800;color:var(--text-muted);width:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;line-height:1;">${num}</span><div style="display:flex;flex-direction:column;"><span style="line-height:1;">${p}</span>${desc ? `<span class="priority-detail-desc">${desc}</span>` : ''}</div>`;
     // Apply off class if filtered out at launch
     if (visiblePriorities !== null && !visiblePriorities.has(p)) row.classList.add('off');
     row.onclick = () => togglePriority(p);
     legend.appendChild(row);
   });
   // Update positioning of scouting legend
+  updateLegendPositions();
+}
+
+function togglePriorityDetails() {
+  priorityDetailsOpen = !priorityDetailsOpen;
+  const legend = document.getElementById('priorityLegend');
+  legend.classList.toggle('show-details', priorityDetailsOpen);
+  const btn = document.getElementById('priorityDetailsBtn');
+  if (btn) btn.textContent = priorityDetailsOpen ? '✕ Details' : 'ⓘ Details';
   updateLegendPositions();
 }
 
