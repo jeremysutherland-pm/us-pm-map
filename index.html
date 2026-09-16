@@ -1681,8 +1681,10 @@ function toggleScout(name) {
 function buildCountryDrawer() {
   const drawer = document.getElementById('countryDrawer');
   drawer.querySelectorAll('.country-row').forEach(r => r.remove());
-  const presentCountries = new Set(CITIES.map(c => c.country||'USA'));
-  presentCountries.add('USA');
+  // Always show every configured country, not just ones with existing city
+  // rows — otherwise a country with a PM assigned but no cities yet (e.g.
+  // Mexico) never appears in the drawer for anyone to toggle on.
+  const presentCountries = new Set(Object.keys(COUNTRY_CONFIG));
   Object.entries(COUNTRY_CONFIG).forEach(([code, cfg]) => {
     if (!presentCountries.has(code)) return;
     const row = document.createElement('div');
