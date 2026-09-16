@@ -724,6 +724,7 @@ const CITY_COORDS = {
   'Indianapolis':[39.7691,-86.1580],'Salt Lake City':[40.7606,-111.8881],
   'Portland':[45.5152,-122.6784],'Charlotte':[35.2271,-80.8431],
   'St. Louis':[38.6270,-90.1994],
+  'Cleveland':[41.4993,-81.6944],
 };
 
 const FALLBACK = [];
@@ -1232,18 +1233,25 @@ async function syncFromSheet(manual=false) {
     hasSynced = true;
     const isFirstLoad = CITIES.length === 0;
 
-    // Geocode any cities missing coordinates, then do a full rebuild
+    // Geocode any cities missing coordinates, then do a full rebuild.
+    // Nominatim's usage policy caps this at ~1 request/sec and disallows
+    // parallel requests — firing them all at once causes some to get
+    // silently rate-limited and dropped, so we go one at a time with a delay.
     const missing = CITIES.filter(c => c.needsGeocode);
+    let geocodeFailed = [];
     if (missing.length > 0) {
       initMarkers(); // show known cities immediately
-      await Promise.all(missing.map(async city => {
+      for (const city of missing) {
         const coords = await geocodeCity(city.name, city.country);
         if (coords) {
           city.lat = coords[0];
           city.lng = coords[1];
           city.needsGeocode = false;
+        } else {
+          geocodeFailed.push(city.name);
         }
-      }));
+        await new Promise(r => setTimeout(r, 1100)); // stay under Nominatim's rate limit
+      }
       initMarkers(); // full rebuild with all coords now resolved
     } else {
       initMarkers(); // full rebuild, removes any deleted cities
@@ -1252,7 +1260,11 @@ async function syncFromSheet(manual=false) {
     if (isFirstLoad) {
       
     }
-    showSyncToast('Synced at ' + new Date().toLocaleTimeString(), false);
+    if (geocodeFailed.length > 0) {
+      showSyncToast('Synced, but could not locate: ' + geocodeFailed.join(', '), true);
+    } else {
+      showSyncToast('Synced at ' + new Date().toLocaleTimeString(), false);
+    }
   } catch(e) {
     console.error('Sync:',e);
     if(CITIES.length===0){CITIES=FALLBACK;initMarkers();showSyncToast('Sync failed — using cached data', true);}else{showSyncToast('Sync failed', true);}
@@ -1391,6 +1403,21 @@ function populateEditFields(index) {
     sel.appendChild(opt);
   });
   document.getElementById('fieldPM').value=city.pm||'Unassigned';
+  // Priority select is a single shared element reused across every popup —
+  // it must be explicitly synced to this city's value on open, or a save on
+  // *any* field silently resubmits whatever was left over from the last
+  // city edited and wipes the real priority out of the sheet.
+  const prioSel = document.getElementById('fieldPriority');
+  prioSel.querySelectorAll('option[data-custom]').forEach(o => o.remove());
+  const knownValues = Array.from(prioSel.options).map(o => o.value);
+  if (city.priority && !knownValues.includes(city.priority)) {
+    // Preserve a non-standard value (e.g. old formatting) exactly as-is
+    // rather than letting it fall through to a blank/wrong selection.
+    const opt = document.createElement('option');
+    opt.value = city.priority; opt.textContent = city.priority; opt.dataset.custom = '1';
+    prioSel.appendChild(opt);
+  }
+  prioSel.value = city.priority || '';
   document.getElementById('fieldScout').value=city.scout||'Unassigned';
   document.getElementById('fieldScouting').value=city.scouting||'No';
   const se=document.getElementById('viewSeasonEdit');
