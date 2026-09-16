@@ -886,7 +886,7 @@ function getMarkerVisibility(city) {
     if (!unassignedOn) return 'hidden';
     // When isolated, visiblePMs is an empty Set — Unassigned bypasses it
     if (visibleScouting !== null && !visibleScouting.has(city.scouting)) return 'hidden';
-    if (visiblePriorities !== null && !visiblePriorities.has(city.priority||'')) return 'hidden';
+    if (visiblePriorities !== null && city.priority && !visiblePriorities.has(city.priority)) return 'hidden';
     if (visibleScouts !== null) {
       const scout = String(city.scout||'').trim();
       if (!visibleScouts.has(scout)) return 'hidden';
@@ -895,7 +895,7 @@ function getMarkerVisibility(city) {
   }
   if (visiblePMs !== null && !visiblePMs.has(cityPM)) return 'hidden';
   if (visibleScouting !== null && !visibleScouting.has(city.scouting)) return 'hidden';
-  if (visiblePriorities !== null && !visiblePriorities.has(city.priority||'')) return 'hidden';
+  if (visiblePriorities !== null && city.priority && !visiblePriorities.has(city.priority)) return 'hidden';
   if (visibleScouts !== null) {
     const scout = String(city.scout||'').trim();
     if (!visibleScouts.has(scout)) return 'hidden';
@@ -1076,6 +1076,26 @@ function handleUnassignedClick() {
   }
 }
 
+// Double-click Unassigned: show ONLY Unassigned cities (hide every assigned PM).
+// visiblePMs becomes an empty Set — Unassigned bypasses that check in getMarkerVisibility.
+function isolateUnassigned() {
+  unassignedOn = true;
+  visiblePMs = new Set();
+  buildPMLegend();
+  applyFilters();
+  updateLogoColor();
+}
+
+// Exit isolation (or any narrowed PM state) back to the default launch view.
+function revertToLaunchState() {
+  unassignedIsolated = false;
+  unassignedOn = false;
+  visiblePMs = null;
+  buildPMLegend();
+  applyFilters();
+  updateLogoColor();
+}
+
 function buildPMLegend() {
   const container = document.getElementById('pmLegend');
   container.innerHTML = '';
@@ -1087,7 +1107,7 @@ function buildPMLegend() {
       if (cityPM !== pm) return false;
       if (!countryVisible[c.country||'USA']) return false;
       // Priority filter affects counts
-      if (visiblePriorities !== null && !visiblePriorities.has(c.priority||'')) return false;
+      if (visiblePriorities !== null && c.priority && !visiblePriorities.has(c.priority)) return false;
       return true;
     }).length;
     if (total === 0) return;
